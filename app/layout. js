@@ -1,0 +1,15 @@
+import "./globals.css";
+
+export const metadata = {
+  title: "BelieverAI",
+  description:
+    "AI-powered writing assistant that humanizes AI text, improves essays, detects AI-generated content, and helps users write naturally.",
+};
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
