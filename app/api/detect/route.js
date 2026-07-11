@@ -1,15 +1,25 @@
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { checkAndUseCredit } from "../../../../lib/usage";
 
 const SYSTEM_PROMPT =
-  'You analyze text for signs of AI authorship (repetitive rhythm, generic phrasing, over-hedging, listy structure, lack of specific voice). Respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape: {"score": number (0-100, 100 = certainly AI), "verdict": "likely human" | "uncertain" | "likely ai", "notes": string[] (2-4 short observations)}';
-
-function parseModelJSON(text) {
-  const clean = text.replace(/```json|```/g, "").trim();
-  return JSON.parse(clean);
-}
+  "You rewrite AI-sounding text into natural, human-voiced prose. Vary sentence length, cut robotic transitions and hedging, keep meaning intact. Respond with only the rewritten text, no preamble, no quotes.";
 
 export async function POST(req) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+    }
+
+    const usage = await checkAndUseCredit(userId);
+    if (!usage.allowed) {
+      return NextResponse.json(
+        { error: `Daily free limit reached (${usage.limit}/day). Upgrade to Pro for unlimited use.` },
+        { status: 429 }
+      );
+    }
+
     const { text } = await req.json();
     if (!text || !text.trim()) {
       return NextResponse.json({ error: "No text provided." }, { status: 400 });
@@ -36,19 +46,12 @@ export async function POST(req) {
     }
 
     const data = await response.json();
-    const raw = (data.content || [])
+    const output = (data.content || [])
       .map((b) => (b.type === "text" ? b.text : ""))
       .join("\n")
       .trim();
 
-    let output;
-    try {
-      output = parseModelJSON(raw);
-    } catch {
-      return NextResponse.json({ error: "Could not parse analysis." }, { status: 502 });
-    }
-
-    return NextResponse.json({ output });
+    return NextResponse.json({ output, usage });
   } catch (err) {
     return NextResponse.json({ error: "Unexpected server error." }, { status: 500 });
   }
