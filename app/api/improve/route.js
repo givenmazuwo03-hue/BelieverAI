@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { checkAndUseCredit } from "../../../../lib/usage";
 
 const SYSTEM_PROMPT =
   'You are an exacting but encouraging writing tutor. Review the essay draft and respond ONLY with valid JSON, no markdown fences, no preamble, in this exact shape: {"overall": string (2-3 sentences of overall feedback), "suggestions": [{"original": string (short excerpt, under 12 words), "suggestion": string (the fix), "reason": string (short reason)}] (3-6 items)}';
@@ -10,6 +12,19 @@ function parseModelJSON(text) {
 
 export async function POST(req) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+    }
+
+    const usage = await checkAndUseCredit(userId);
+    if (!usage.allowed) {
+      return NextResponse.json(
+        { error: `Daily free limit reached (${usage.limit}/day). Upgrade to Pro for unlimited use.` },
+        { status: 429 }
+      );
+    }
+
     const { text } = await req.json();
     if (!text || !text.trim()) {
       return NextResponse.json({ error: "No text provided." }, { status: 400 });
@@ -48,7 +63,7 @@ export async function POST(req) {
       return NextResponse.json({ error: "Could not parse feedback." }, { status: 502 });
     }
 
-    return NextResponse.json({ output });
+    return NextResponse.json({ output, usage });
   } catch (err) {
     return NextResponse.json({ error: "Unexpected server error." }, { status: 500 });
   }
