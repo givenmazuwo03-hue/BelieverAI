@@ -1,10 +1,25 @@
 import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { checkAndUseCredit } from "../../../../lib/usage";
 
 const SYSTEM_PROMPT =
   "You rewrite AI-sounding text into natural, human-voiced prose. Vary sentence length, cut robotic transitions and hedging, keep meaning intact. Respond with only the rewritten text, no preamble, no quotes.";
 
 export async function POST(req) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+    }
+
+    const usage = await checkAndUseCredit(userId);
+    if (!usage.allowed) {
+      return NextResponse.json(
+        { error: `Daily free limit reached (${usage.limit}/day). Upgrade to Pro for unlimited use.` },
+        { status: 429 }
+      );
+    }
+
     const { text } = await req.json();
     if (!text || !text.trim()) {
       return NextResponse.json({ error: "No text provided." }, { status: 400 });
@@ -36,7 +51,7 @@ export async function POST(req) {
       .join("\n")
       .trim();
 
-    return NextResponse.json({ output });
+    return NextResponse.json({ output, usage });
   } catch (err) {
     return NextResponse.json({ error: "Unexpected server error." }, { status: 500 });
   }
